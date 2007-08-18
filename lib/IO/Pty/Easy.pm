@@ -12,11 +12,11 @@ IO::Pty::Easy - Easy interface to IO::Pty
 
 =head1 VERSION
 
-Version 0.01 released 08/17/2007
+Version 0.02 released 08/17/2007
 
 =cut
 
-our $VERSION = '0.01';
+our $VERSION = '0.02';
 
 =head1 SYNOPSIS
 
@@ -25,7 +25,7 @@ our $VERSION = '0.01';
     my $pty = IO::Pty::Easy->new;
     $pty->spawn("nethack");
 
-    while (1) {
+    while ($pty->is_active) {
         my $input = # read a key here...
         $input = 'Elbereth' if $input eq "\ce";
         my $chars = $pty->write($input, 0);
@@ -113,11 +113,13 @@ sub spawn {
     my $self = shift;
     my $slave = $self->{pty}->slave;
 
+    croak "Attempt to spawn a subprocess when one is already running"
+        if $self->is_active;
+
     # set up a pipe to use for keeping track of the child process during exec
     my ($readp, $writep);
     unless (pipe($readp, $writep)) {
-        carp "Failed to create a pipe";
-        return;
+        croak "Failed to create a pipe";
     }
     $writep->autoflush(1);
 
@@ -125,6 +127,8 @@ sub spawn {
     # if the exec fails, signal the parent by sending the errno across the pipe
     # if the exec succeeds, perl will close the pipe, and the sysread will
     # return due to EOF
+    sub sigchld { wait; $SIG{CHLD} = \&sigchld; }
+    $SIG{CHLD} = \&sigchld;
     $self->{pid} = fork;
     unless ($self->{pid}) {
         close $readp;
@@ -157,17 +161,20 @@ sub spawn {
     my $errno;
     my $read_bytes = sysread($readp, $errno, 256);
     unless (defined $read_bytes) {
+        # XXX: should alarm here and follow up with SIGKILL if the process
+        # refuses to die
         kill TERM => $self->{pid};
         close $readp;
+        $self->_wait_for_inactive;
         croak "Cannot sync with child: $!";
     }
     close $readp;
     if ($read_bytes > 0) {
         $errno = $errno + 0;
+        $self->_wait_for_inactive;
         croak "Cannot exec(@_): $errno";
     }
 
-    my $pid = $self->{pid};
     my $winch;
     $winch = sub {
         $self->{pty}->slave->clone_winsize_from(\*STDIN);
@@ -175,7 +182,6 @@ sub spawn {
         $SIG{WINCH} = $winch;
     };
     $SIG{WINCH} = $winch if $self->{handle_pty_size};
-    $SIG{CHLD} = sub { $self->{pid} = undef; wait };
 }
 # }}}
 
@@ -248,7 +254,10 @@ Returns whether or not a subprocess is currently running on the pty.
 sub is_active {
     my $self = shift;
 
-    return defined($self->{pid});
+    return 0 unless defined($self->{pid});
+    my $active = kill 0 => $self->{pid};
+    delete $self->{pid} unless $active;
+    return $active;
 }
 # }}}
 
@@ -256,17 +265,23 @@ sub is_active {
 
 =head2 kill()
 
-Kills the process currently running on the pty (if any). After this call, C<read()> and C<write()> will fail, and a new process can be created on the pty with C<spawn()> once C<is_active> returns false.
+Sends a signal to the process currently running on the pty (if any). Optionally blocks until the process dies.
 
-Returns 1 if a process was actually killed, and 0 otherwise.
+C<kill()> takes two optional arguments. The first is the signal to send, in any format that the perl C<kill()> command recognizes (defaulting to "TERM"). The second is a boolean argument, where false means to block until the process dies, and true means to just send the signal and return.
+
+Returns 1 if a process was actually signaled, and 0 otherwise.
 
 =cut
 
 sub kill {
     my $self = shift;
+    my ($sig, $non_blocking) = @_;
+    $sig = "TERM" unless defined $sig;
 
-    # SIGCHLD should take care of undefing pid
-    kill TERM => $self->{pid} if $self->is_active;
+    my $kills = kill $sig => $self->{pid} if $self->is_active;
+    $self->_wait_for_inactive unless $non_blocking;
+
+    return $kills;
 }
 # }}}
 
@@ -288,6 +303,14 @@ sub close {
     $self->kill;
     close $self->{pty};
     $self->{pty} = undef;
+}
+# }}}
+
+# _wait_for_inactive() {{{
+sub _wait_for_inactive {
+    my $self = shift;
+
+    1 while $self->is_active;
 }
 # }}}
 
