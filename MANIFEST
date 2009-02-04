@@ -21,3 +21,4 @@ t/002-spawn.t
 t/003-subprocess.t
 t/004-undefined-program.t
 t/010-read-write.t
+t/100-system.t

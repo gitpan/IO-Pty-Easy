@@ -3,7 +3,7 @@ use warnings;
 use strict;
 use IO::Pty;
 use Carp;
-require POSIX;
+use POSIX ();
 
 # Intro documentation {{{
 
@@ -13,11 +13,11 @@ IO::Pty::Easy - Easy interface to IO::Pty
 
 =head1 VERSION
 
-Version 0.03 released 08/20/2007
+Version 0.04 released 2/3/2009
 
 =cut
 
-our $VERSION = '0.03';
+our $VERSION = '0.04';
 
 =head1 SYNOPSIS
 
@@ -82,13 +82,14 @@ sub new {
         @_,
 
         # state
-        pty => undef,
-        pid => undef,
+        pty          => undef,
+        pid          => undef,
+        final_output => '',
     };
 
     bless $self, $class;
 
-    $self->{pty} = new IO::Pty;
+    $self->{pty} = IO::Pty->new;
     $self->{handle_pty_size} = 0 unless POSIX::isatty(*STDIN);
 
     return $self;
@@ -129,8 +130,6 @@ sub spawn {
     # if the exec fails, signal the parent by sending the errno across the pipe
     # if the exec succeeds, perl will close the pipe, and the sysread will
     # return due to EOF
-    sub sigchld { wait; $SIG{CHLD} = \&sigchld; }
-    $SIG{CHLD} = \&sigchld;
     $self->{pid} = fork;
     unless ($self->{pid}) {
         close $readp;
@@ -212,6 +211,8 @@ sub read {
         my $nchars = sysread($self->{pty}, $buf, $max_chars);
         $buf = '' if defined($nchars) && $nchars == 0;
     }
+    $buf = $self->{final_output} . $buf;
+    $self->{final_output} = '';
     return $buf;
 }
 # }}}
@@ -254,9 +255,26 @@ Returns whether or not a subprocess is currently running on the pty.
 sub is_active {
     my $self = shift;
 
-    return 0 unless defined($self->{pid});
+    return 0 unless defined $self->{pid};
+    # XXX FreeBSD 7.0 will not allow a session leader to exit until the kernel
+    # tty output buffer is empty.  Make it so.
+    my $rin = '';
+    vec($rin, fileno($self->{pty}), 1) = 1;
+    my $nfound = select($rin, undef, undef, 0);
+    if ($nfound > 0) {
+        sysread($self->{pty}, $self->{final_output},
+                $self->{def_max_read_chars}, length $self->{final_output});
+    }
+
     my $active = kill 0 => $self->{pid};
-    delete $self->{pid} unless $active;
+    if ($active) {
+        my $pid = waitpid($self->{pid}, POSIX::WNOHANG());
+        $active = 0 if $pid == $self->{pid};
+    }
+    if (!$active) {
+        $SIG{WINCH} = 'DEFAULT' if $self->{handle_pty_size};
+        delete $self->{pid};
+    }
     return $active;
 }
 # }}}
@@ -300,9 +318,10 @@ Kills any subprocesses and closes the pty. No other operations are valid after t
 sub close {
     my $self = shift;
 
+    return unless $self->{pty};
     $self->kill;
     close $self->{pty};
-    $self->{pty} = undef;
+    delete $self->{pty};
 }
 # }}}
 
@@ -310,7 +329,14 @@ sub close {
 sub _wait_for_inactive {
     my $self = shift;
 
-    1 while $self->is_active;
+    select(undef, undef, undef, 0.01) while $self->is_active;
+}
+# }}}
+
+# DESTROY {{{
+sub DESTROY {
+    my $self = shift;
+    $self->close;
 }
 # }}}
 
@@ -324,7 +350,7 @@ L<Expect>
 
 =head1 AUTHOR
 
-Jesse Luehrs, C<< <jluehrs2 at uiuc dot edu> >>
+Jesse Luehrs, C<< <doy at tozt dot net> >>
 
 This module is based heavily on the F<try> script bundled with L<IO::Pty>.
 
@@ -366,7 +392,7 @@ L<http://search.cpan.org/dist/IO-Pty-Easy>
 
 =head1 COPYRIGHT AND LICENSE
 
-Copyright 2007 Jesse Luehrs.
+Copyright 2007-2009 Jesse Luehrs.
 
 This program is free software; you can redistribute it and/or modify it
 under the same terms as Perl itself.
