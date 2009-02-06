@@ -13,11 +13,11 @@ IO::Pty::Easy - Easy interface to IO::Pty
 
 =head1 VERSION
 
-Version 0.04 released 2/3/2009
+Version 0.05 released 2/5/2009
 
 =cut
 
-our $VERSION = '0.04';
+our $VERSION = '0.05';
 
 =head1 SYNOPSIS
 
@@ -211,8 +211,11 @@ sub read {
         my $nchars = sysread($self->{pty}, $buf, $max_chars);
         $buf = '' if defined($nchars) && $nchars == 0;
     }
-    $buf = $self->{final_output} . $buf;
-    $self->{final_output} = '';
+    if (length($self->{final_output}) > 0) {
+        no warnings 'uninitialized';
+        $buf = $self->{final_output} . $buf;
+        $self->{final_output} = '';
+    }
     return $buf;
 }
 # }}}
@@ -356,7 +359,11 @@ This module is based heavily on the F<try> script bundled with L<IO::Pty>.
 
 =head1 BUGS
 
-No known bugs.
+If the pty is capable of reading some, but not all data given in a C<write()>
+call, the call to C<write()> will write what it can, and then block
+indefinitely, regardless of the given timeout parameter (the timeout parameter
+is only passed to the C<select()> call used internally, C<syswrite()> has no
+timeout mechanism).
 
 Please report any bugs through RT: email
 C<bug-io-pty-easy at rt.cpan.org>, or browse to

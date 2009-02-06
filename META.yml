@@ -18,4 +18,5 @@ no_index:
 requires: 
   Carp: 0
   IO::Pty: 0
-version: 0.04
+  POSIX: 0
+version: 0.05
