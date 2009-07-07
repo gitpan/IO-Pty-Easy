@@ -1,14 +1,18 @@
-# Load the Module::Install bundled in ./inc/
-use inc::Module::Install;
 
-# Define metadata
-name           'IO-Pty-Easy';
-all_from       'lib/IO/Pty/Easy.pm';
+use strict;
+use warnings;
 
-requires       'IO::Pty';
+use ExtUtils::MakeMaker;
 
-build_requires 'Test::More';
-
-auto_install;
-WriteAll;
-
+WriteMakefile(
+  DISTNAME  => 'IO-Pty-Easy',
+  NAME      => 'IO::Pty::Easy',
+  AUTHOR    => 'Jesse\ Luehrs\ \<doy\ at\ tozt\ dot\ net\>',
+  ABSTRACT  => 'Easy\ interface\ to\ IO\:\:Pty',
+  VERSION   => '0.07',
+  EXE_FILES => [ qw() ],
+  (eval { ExtUtils::MakeMaker->VERSION(6.21) } ? (LICENSE => 'perl') : ()),
+  PREREQ_PM    => {
+    "IO::Pty" => '0',
+  },
+);

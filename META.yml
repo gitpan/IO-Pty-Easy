@@ -1,25 +1,13 @@
 ---
 abstract: 'Easy interface to IO::Pty'
 author:
-  - 'Jesse Luehrs, C<< <doy at tozt dot net> >>'
-build_requires:
-  ExtUtils::MakeMaker: 6.42
-  Test::More: 0
-configure_requires:
-  ExtUtils::MakeMaker: 6.42
-distribution_type: module
-generated_by: 'Module::Install version 0.91'
+  - 'Jesse Luehrs <doy at tozt dot net>'
+generated_by: 'Dist::Zilla::Plugin::MetaYAML version 1.091440'
 license: perl
 meta-spec:
   url: http://module-build.sourceforge.net/META-spec-v1.4.html
   version: 1.4
 name: IO-Pty-Easy
-no_index:
-  directory:
-    - inc
-    - t
 requires:
   IO::Pty: 0
-resources:
-  license: http://dev.perl.org/licenses/
-version: 0.06
+version: 0.07

@@ -1,11 +1,11 @@
 package IO::Pty::Easy;
+our $VERSION = '0.07';
+
 use warnings;
 use strict;
 use base 'IO::Pty';
 use Carp;
 use POSIX ();
-
-# Intro documentation {{{
 
 =head1 NAME
 
@@ -13,11 +13,7 @@ IO::Pty::Easy - Easy interface to IO::Pty
 
 =head1 VERSION
 
-Version 0.06 released 7/6/2009
-
-=cut
-
-our $VERSION = '0.06';
+version 0.07
 
 =head1 SYNOPSIS
 
@@ -41,33 +37,40 @@ our $VERSION = '0.06';
 
 =head1 DESCRIPTION
 
-C<IO::Pty::Easy> provides an interface to L<IO::Pty> which hides most of the ugly details of handling ptys, wrapping them instead in simple spawn/read/write commands.
+C<IO::Pty::Easy> provides an interface to L<IO::Pty> which hides most of the
+ugly details of handling ptys, wrapping them instead in simple spawn/read/write
+commands.
 
-C<IO::Pty::Easy> uses L<IO::Pty> internally, so it inherits all of the portability restrictions from that module.
+C<IO::Pty::Easy> uses L<IO::Pty> internally, so it inherits all of the
+portability restrictions from that module.
 
 =cut
-
-# }}}
 
 =head1 CONSTRUCTOR
 
 =cut
 
-# new() {{{
-
 =head2 new()
 
-The C<new> constructor initializes the pty and returns a new C<IO::Pty::Easy> object. The constructor recognizes these parameters:
+The C<new> constructor initializes the pty and returns a new C<IO::Pty::Easy>
+object. The constructor recognizes these parameters:
 
 =over 4
 
 =item handle_pty_size
 
-A boolean option which determines whether or not changes in the size of the user's terminal should be propageted to the pty object. Defaults to true.
+A boolean option which determines whether or not changes in the size of the
+user's terminal should be propageted to the pty object. Defaults to true.
 
 =item def_max_read_chars
 
-The maximum number of characters returned by a C<read()> call. This can be overridden in the C<read()> argument list. Defaults to 8192.
+The maximum number of characters returned by a C<read()> call. This can be
+overridden in the C<read()> argument list. Defaults to 8192.
+
+=item raw
+
+A boolean option which determines whether or not to call L<IO::Pty/set_raw()>
+after C<spawn()>. Defaults to true.
 
 =back
 
@@ -84,22 +87,23 @@ sub new {
     my $def_max_read_chars = 8192;
     $def_max_read_chars = delete $args{def_max_read_chars}
         if exists $args{def_max_read_chars};
+    my $raw = 1;
+    $raw = delete $args{raw}
+        if exists $args{raw};
 
     my $self = $class->SUPER::new(%args);
     bless $self, $class;
     $self->handle_pty_size($handle_pty_size);
     $self->def_max_read_chars($def_max_read_chars);
+    ${*{$self}}{io_pty_easy_raw} = $raw;
     ${*{$self}}{io_pty_easy_final_output} = '';
 
     return $self;
 }
-# }}}
 
 =head1 METHODS
 
 =cut
-
-# spawn() {{{
 
 =head2 spawn()
 
@@ -135,7 +139,7 @@ sub spawn {
         $self->make_slave_controlling_terminal;
         close $self;
         $slave->clone_winsize_from(\*STDIN) if $self->handle_pty_size;
-        $slave->set_raw;
+        $slave->set_raw if ${*{$self}}{io_pty_easy_raw};
         # reopen the standard file descriptors in the child to point to the
         # pty rather than wherever they have been pointing during the script's
         # execution
@@ -154,7 +158,6 @@ sub spawn {
 
     close $writep;
     $self->close_slave;
-    $self->set_raw;
     # this sysread will block until either we get an EOF from the other end of
     # the pipe being closed due to the exec, or until the child process sends
     # us the errno of the exec call after it fails
@@ -183,17 +186,21 @@ sub spawn {
     };
     $SIG{WINCH} = $winch if $self->handle_pty_size;
 }
-# }}}
-
-# read() {{{
 
 =head2 read()
 
 Read data from the process running on the pty.
 
-C<read()> takes two optional arguments: the first is the number of seconds (possibly fractional) to block for data (defaults to blocking forever, 0 means completely non-blocking), and the second is the maximum number of bytes to read (defaults to the value of C<def_max_read_chars>, usually 8192). The requirement for a maximum returned string length is a limitation imposed by the use of C<sysread()>, which we use internally.
+C<read()> takes two optional arguments: the first is the number of seconds
+(possibly fractional) to block for data (defaults to blocking forever, 0 means
+completely non-blocking), and the second is the maximum number of bytes to read
+(defaults to the value of C<def_max_read_chars>, usually 8192). The requirement
+for a maximum returned string length is a limitation imposed by the use of
+C<sysread()>, which we use internally.
 
-Returns C<undef> on timeout, the empty string on EOF, or a string of at least one character on success (this is consistent with C<sysread()> and L<Term::ReadKey>).
+Returns C<undef> on timeout, the empty string on EOF, or a string of at least
+one character on success (this is consistent with C<sysread()> and
+L<Term::ReadKey>).
 
 =cut
 
@@ -217,17 +224,18 @@ sub read {
     }
     return $buf;
 }
-# }}}
-
-# write() {{{
 
 =head2 write()
 
 Writes a string to the pty.
 
-The first argument is the string to write, which is followed by one optional argument, the number of seconds (possibly fractional) to block for, taking the same values as C<read()>.
+The first argument is the string to write, which is followed by one optional
+argument, the number of seconds (possibly fractional) to block for, taking the
+same values as C<read()>.
 
-Returns undef on timeout, 0 on failure to write, or the number of bytes actually written on success (this may be less than the number of bytes requested; this should be checked for).
+Returns undef on timeout, 0 on failure to write, or the number of bytes
+actually written on success (this may be less than the number of bytes
+requested; this should be checked for).
 
 =cut
 
@@ -244,9 +252,6 @@ sub write {
     }
     return $nchars;
 }
-# }}}
-
-# is_active() {{{
 
 =head2 is_active()
 
@@ -280,15 +285,16 @@ sub is_active {
     }
     return $active;
 }
-# }}}
-
-# kill() {{{
 
 =head2 kill()
 
-Sends a signal to the process currently running on the pty (if any). Optionally blocks until the process dies.
+Sends a signal to the process currently running on the pty (if any). Optionally
+blocks until the process dies.
 
-C<kill()> takes two optional arguments. The first is the signal to send, in any format that the perl C<kill()> command recognizes (defaulting to "TERM"). The second is a boolean argument, where false means to block until the process dies, and true means to just send the signal and return.
+C<kill()> takes two optional arguments. The first is the signal to send, in any
+format that the perl C<kill()> command recognizes (defaulting to "TERM"). The
+second is a boolean argument, where false means to block until the process
+dies, and true means to just send the signal and return.
 
 Returns 1 if a process was actually signaled, and 0 otherwise.
 
@@ -304,13 +310,11 @@ sub kill {
 
     return $kills;
 }
-# }}}
-
-# close() {{{
 
 =head2 close()
 
-Kills any subprocesses and closes the pty. No other operations are valid after this call.
+Kills any subprocesses and closes the pty. No other operations are valid after
+this call.
 
 =cut
 
@@ -320,14 +324,11 @@ sub close {
     $self->kill;
     close $self;
 }
-# }}}
-
-# handle_pty_size() {{{
 
 =head2 handle_pty_size()
 
 Read/write accessor for the C<handle_pty_size> option documented in
-L<the constructor options|/new>.
+L<the constructor options|/new()>.
 
 =cut
 
@@ -336,14 +337,11 @@ sub handle_pty_size {
     ${*{$self}}{io_pty_easy_handle_pty_size} = $_[0] if @_;
     ${*{$self}}{io_pty_easy_handle_pty_size};
 }
-# }}}
-
-# def_max_read_chars() {{{
 
 =head2 def_max_read_chars()
 
 Read/write accessor for the C<def_max_read_chars> option documented in
-L<the constructor options|/new>.
+L<the constructor options|/new()>.
 
 =cut
 
@@ -352,9 +350,6 @@ sub def_max_read_chars {
     ${*{$self}}{io_pty_easy_def_max_read_chars} = $_[0] if @_;
     ${*{$self}}{io_pty_easy_def_max_read_chars};
 }
-# }}}
-
-# pid() {{{
 
 =head2 pid()
 
@@ -367,26 +362,19 @@ sub pid {
     my $self = shift;
     ${*{$self}}{io_pty_easy_pid};
 }
-# }}}
 
-# _wait_for_inactive() {{{
 sub _wait_for_inactive {
     my $self = shift;
 
     select(undef, undef, undef, 0.01) while $self->is_active;
 }
-# }}}
 
-# DESTROY {{{
 sub DESTROY {
     my $self = shift;
     local $@;
     local $?;
     $self->close;
 }
-# }}}
-
-# Ending documentation {{{
 
 =head1 SEE ALSO
 
@@ -446,7 +434,5 @@ This program is free software; you can redistribute it and/or modify it
 under the same terms as Perl itself.
 
 =cut
-
-# }}}
 
 1;
