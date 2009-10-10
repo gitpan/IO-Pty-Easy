@@ -10,4 +10,5 @@ meta-spec:
 name: IO-Pty-Easy
 requires:
   IO::Pty: 0
-version: 0.07
+  Scalar::Util: 0
+version: 0.08
