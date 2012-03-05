@@ -1,12 +1,13 @@
 
 
-This archive contains the distribution IO-Pty-Easy, version
-0.08:
+This archive contains the distribution IO-Pty-Easy,
+version 0.09:
 
   Easy interface to IO::Pty
 
-This software is copyright (c) 2009 by Jesse Luehrs.
+This software is copyright (c) 2012 by Jesse Luehrs.
 
 This is free software; you can redistribute it and/or modify it under
-the same terms as perl itself.
+the same terms as the Perl 5 programming language system itself.
+
 

@@ -1,81 +1,21 @@
 package IO::Pty::Easy;
-our $VERSION = '0.08';
-
+BEGIN {
+  $IO::Pty::Easy::AUTHORITY = 'cpan:DOY';
+}
+{
+  $IO::Pty::Easy::VERSION = '0.09';
+}
 use warnings;
 use strict;
-use base 'IO::Pty';
+# ABSTRACT: Easy interface to IO::Pty
+
 use Carp;
 use POSIX ();
 use Scalar::Util qw(weaken);
 
-=head1 NAME
+use base 'IO::Pty';
 
-IO::Pty::Easy - Easy interface to IO::Pty
 
-=head1 VERSION
-
-version 0.08
-
-=head1 SYNOPSIS
-
-    use IO::Pty::Easy;
-
-    my $pty = IO::Pty::Easy->new;
-    $pty->spawn("nethack");
-
-    while ($pty->is_active) {
-        my $input = # read a key here...
-        $input = 'Elbereth' if $input eq "\ce";
-        my $chars = $pty->write($input, 0);
-        last if defined($chars) && $chars == 0;
-        my $output = $pty->read(0);
-        last if defined($output) && $output eq '';
-        $output =~ s/Elbereth/\e[35mElbereth\e[m/;
-        print $output;
-    }
-
-    $pty->close;
-
-=head1 DESCRIPTION
-
-C<IO::Pty::Easy> provides an interface to L<IO::Pty> which hides most of the
-ugly details of handling ptys, wrapping them instead in simple spawn/read/write
-commands.
-
-C<IO::Pty::Easy> uses L<IO::Pty> internally, so it inherits all of the
-portability restrictions from that module.
-
-=cut
-
-=head1 CONSTRUCTOR
-
-=cut
-
-=head2 new()
-
-The C<new> constructor initializes the pty and returns a new C<IO::Pty::Easy>
-object. The constructor recognizes these parameters:
-
-=over 4
-
-=item handle_pty_size
-
-A boolean option which determines whether or not changes in the size of the
-user's terminal should be propageted to the pty object. Defaults to true.
-
-=item def_max_read_chars
-
-The maximum number of characters returned by a C<read()> call. This can be
-overridden in the C<read()> argument list. Defaults to 8192.
-
-=item raw
-
-A boolean option which determines whether or not to call L<IO::Pty/set_raw()>
-after C<spawn()>. Defaults to true.
-
-=back
-
-=cut
 
 sub new {
     my $class = shift;
@@ -103,19 +43,6 @@ sub new {
     return $self;
 }
 
-=head1 METHODS
-
-=cut
-
-=head2 spawn()
-
-Fork a new subprocess, with stdin/stdout/stderr tied to the pty.
-
-The argument list is passed directly to C<exec()>.
-
-Returns true on success, false on failure.
-
-=cut
 
 sub spawn {
     my $self = shift;
@@ -145,11 +72,11 @@ sub spawn {
         # reopen the standard file descriptors in the child to point to the
         # pty rather than wherever they have been pointing during the script's
         # execution
-        open(STDIN,  "<&" . $slave->fileno)
+        open(STDIN,  '<&', $slave->fileno)
             or carp "Couldn't reopen STDIN for reading";
-        open(STDOUT, ">&" . $slave->fileno)
+        open(STDOUT, '>&', $slave->fileno)
             or carp "Couldn't reopen STDOUT for writing";
-        open(STDERR, ">&" . $slave->fileno)
+        open(STDERR, '>&', $slave->fileno)
             or carp "Couldn't reopen STDERR for writing";
         close $slave;
         { exec(@_) };
@@ -191,22 +118,6 @@ sub spawn {
     }
 }
 
-=head2 read()
-
-Read data from the process running on the pty.
-
-C<read()> takes two optional arguments: the first is the number of seconds
-(possibly fractional) to block for data (defaults to blocking forever, 0 means
-completely non-blocking), and the second is the maximum number of bytes to read
-(defaults to the value of C<def_max_read_chars>, usually 8192). The requirement
-for a maximum returned string length is a limitation imposed by the use of
-C<sysread()>, which we use internally.
-
-Returns C<undef> on timeout, the empty string on EOF, or a string of at least
-one character on success (this is consistent with C<sysread()> and
-L<Term::ReadKey>).
-
-=cut
 
 sub read {
     my $self = shift;
@@ -229,19 +140,6 @@ sub read {
     return $buf;
 }
 
-=head2 write()
-
-Writes a string to the pty.
-
-The first argument is the string to write, which is followed by one optional
-argument, the number of seconds (possibly fractional) to block for, taking the
-same values as C<read()>.
-
-Returns undef on timeout, 0 on failure to write, or the number of bytes
-actually written on success (this may be less than the number of bytes
-requested; this should be checked for).
-
-=cut
 
 sub write {
     my $self = shift;
@@ -257,25 +155,23 @@ sub write {
     return $nchars;
 }
 
-=head2 is_active()
-
-Returns whether or not a subprocess is currently running on the pty.
-
-=cut
 
 sub is_active {
     my $self = shift;
 
     return 0 unless defined $self->pid;
-    # XXX FreeBSD 7.0 will not allow a session leader to exit until the kernel
-    # tty output buffer is empty.  Make it so.
-    my $rin = '';
-    vec($rin, fileno($self), 1) = 1;
-    my $nfound = select($rin, undef, undef, 0);
-    if ($nfound > 0) {
-        sysread($self, ${*{$self}}{io_pty_easy_final_output},
-                $self->def_max_read_chars,
-                length ${*{$self}}{io_pty_easy_final_output});
+
+    if (defined(my $fd = fileno($self))) {
+        # XXX FreeBSD 7.0 will not allow a session leader to exit until the
+        # kernel tty output buffer is empty.  Make it so.
+        my $rin = '';
+        vec($rin, $fd, 1) = 1;
+        my $nfound = select($rin, undef, undef, 0);
+        if ($nfound > 0) {
+            sysread($self, ${*{$self}}{io_pty_easy_final_output},
+                    $self->def_max_read_chars,
+                    length ${*{$self}}{io_pty_easy_final_output});
+        }
     }
 
     my $active = kill 0 => $self->pid;
@@ -292,51 +188,27 @@ sub is_active {
     return $active;
 }
 
-=head2 kill()
-
-Sends a signal to the process currently running on the pty (if any). Optionally
-blocks until the process dies.
-
-C<kill()> takes two optional arguments. The first is the signal to send, in any
-format that the perl C<kill()> command recognizes (defaulting to "TERM"). The
-second is a boolean argument, where false means to block until the process
-dies, and true means to just send the signal and return.
-
-Returns 1 if a process was actually signaled, and 0 otherwise.
-
-=cut
 
 sub kill {
     my $self = shift;
     my ($sig, $non_blocking) = @_;
     $sig = "TERM" unless defined $sig;
 
-    my $kills = kill $sig => $self->pid if $self->is_active;
+    my $kills;
+    $kills = kill $sig => $self->pid if $self->is_active;
     $self->_wait_for_inactive unless $non_blocking;
 
     return $kills;
 }
 
-=head2 close()
-
-Kills any subprocesses and closes the pty. No other operations are valid after
-this call.
-
-=cut
 
 sub close {
     my $self = shift;
 
-    $self->kill;
     close $self;
+    $self->kill;
 }
 
-=head2 handle_pty_size()
-
-Read/write accessor for the C<handle_pty_size> option documented in
-L<the constructor options|/new()>.
-
-=cut
 
 sub handle_pty_size {
     my $self = shift;
@@ -344,12 +216,6 @@ sub handle_pty_size {
     ${*{$self}}{io_pty_easy_handle_pty_size};
 }
 
-=head2 def_max_read_chars()
-
-Read/write accessor for the C<def_max_read_chars> option documented in
-L<the constructor options|/new()>.
-
-=cut
 
 sub def_max_read_chars {
     my $self = shift;
@@ -357,12 +223,6 @@ sub def_max_read_chars {
     ${*{$self}}{io_pty_easy_def_max_read_chars};
 }
 
-=head2 pid()
-
-Returns the pid of the process currently running in the pty, or undef if no
-process is running.
-
-=cut
 
 sub pid {
     my $self = shift;
@@ -382,19 +242,145 @@ sub DESTROY {
     $self->close;
 }
 
-=head1 SEE ALSO
 
-L<IO::Pty>
+1;
 
-L<Expect>
+__END__
+=pod
 
-L<IO::Pty::HalfDuplex>
+=head1 NAME
 
-=head1 AUTHOR
+IO::Pty::Easy - Easy interface to IO::Pty
 
-Jesse Luehrs, C<< <doy at tozt dot net> >>
+=head1 VERSION
 
-This module is based heavily on the F<try> script bundled with L<IO::Pty>.
+version 0.09
+
+=head1 SYNOPSIS
+
+    use IO::Pty::Easy;
+
+    my $pty = IO::Pty::Easy->new;
+    $pty->spawn("nethack");
+
+    while ($pty->is_active) {
+        my $input = # read a key here...
+        $input = 'Elbereth' if $input eq "\ce";
+        my $chars = $pty->write($input, 0);
+        last if defined($chars) && $chars == 0;
+        my $output = $pty->read(0);
+        last if defined($output) && $output eq '';
+        $output =~ s/Elbereth/\e[35mElbereth\e[m/;
+        print $output;
+    }
+
+    $pty->close;
+
+=head1 DESCRIPTION
+
+C<IO::Pty::Easy> provides an interface to L<IO::Pty> which hides most of the
+ugly details of handling ptys, wrapping them instead in simple spawn/read/write
+commands.
+
+C<IO::Pty::Easy> uses L<IO::Pty> internally, so it inherits all of the
+portability restrictions from that module.
+
+=head1 METHODS
+
+=head2 new(%params)
+
+The C<new> constructor initializes the pty and returns a new C<IO::Pty::Easy>
+object. The constructor recognizes these parameters:
+
+=over 4
+
+=item handle_pty_size
+
+A boolean option which determines whether or not changes in the size of the
+user's terminal should be propageted to the pty object. Defaults to true.
+
+=item def_max_read_chars
+
+The maximum number of characters returned by a C<read()> call. This can be
+overridden in the C<read()> argument list. Defaults to 8192.
+
+=item raw
+
+A boolean option which determines whether or not to call L<IO::Pty/set_raw()>
+after C<spawn()>. Defaults to true.
+
+=back
+
+=head2 spawn(@argv)
+
+Fork a new subprocess, with stdin/stdout/stderr tied to the pty.
+
+The argument list is passed directly to C<exec()>.
+
+Returns true on success, false on failure.
+
+=head2 read($timeout, $length)
+
+Read data from the process running on the pty.
+
+C<read()> takes two optional arguments: the first is the number of seconds
+(possibly fractional) to block for data (defaults to blocking forever, 0 means
+completely non-blocking), and the second is the maximum number of bytes to read
+(defaults to the value of C<def_max_read_chars>, usually 8192). The requirement
+for a maximum returned string length is a limitation imposed by the use of
+C<sysread()>, which we use internally.
+
+Returns C<undef> on timeout, the empty string on EOF, or a string of at least
+one character on success (this is consistent with C<sysread()> and
+L<Term::ReadKey>).
+
+=head2 write($buf, $timeout)
+
+Writes a string to the pty.
+
+The first argument is the string to write, which is followed by one optional
+argument, the number of seconds (possibly fractional) to block for, taking the
+same values as C<read()>.
+
+Returns undef on timeout, 0 on failure to write, or the number of bytes
+actually written on success (this may be less than the number of bytes
+requested; this should be checked for).
+
+=head2 is_active
+
+Returns whether or not a subprocess is currently running on the pty.
+
+=head2 kill($sig, $non_blocking)
+
+Sends a signal to the process currently running on the pty (if any). Optionally
+blocks until the process dies.
+
+C<kill()> takes two optional arguments. The first is the signal to send, in any
+format that the perl C<kill()> command recognizes (defaulting to "TERM"). The
+second is a boolean argument, where false means to block until the process
+dies, and true means to just send the signal and return.
+
+Returns 1 if a process was actually signaled, and 0 otherwise.
+
+=head2 close
+
+Kills any subprocesses and closes the pty. No other operations are valid after
+this call.
+
+=head2 handle_pty_size
+
+Read/write accessor for the C<handle_pty_size> option documented in
+L<the constructor options|/new(%params)>.
+
+=head2 def_max_read_chars
+
+Read/write accessor for the C<def_max_read_chars> option documented in
+L<the constructor options|/new(%params)>.
+
+=head2 pid
+
+Returns the pid of the process currently running in the pty, or undef if no
+process is running.
 
 =head1 BUGS
 
@@ -403,6 +389,16 @@ No known bugs.
 Please report any bugs through RT: email
 C<bug-io-pty-easy at rt.cpan.org>, or browse to
 L<http://rt.cpan.org/NoAuth/ReportBug.html?Queue=IO-Pty-Easy>.
+
+=head1 SEE ALSO
+
+L<IO::Pty>
+
+(This module is based heavily on the F<try> script bundled with L<IO::Pty>.)
+
+L<Expect>
+
+L<IO::Pty::HalfDuplex>
 
 =head1 SUPPORT
 
@@ -432,13 +428,16 @@ L<http://search.cpan.org/dist/IO-Pty-Easy>
 
 =back
 
+=head1 AUTHOR
+
+Jesse Luehrs <doy at tozt dot net>
+
 =head1 COPYRIGHT AND LICENSE
 
-Copyright 2007-2009 Jesse Luehrs.
+This software is copyright (c) 2012 by Jesse Luehrs.
 
-This program is free software; you can redistribute it and/or modify it
-under the same terms as Perl itself.
+This is free software; you can redistribute it and/or modify it under
+the same terms as the Perl 5 programming language system itself.
 
 =cut
 
-1;
